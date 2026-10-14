@@ -1,0 +1,4 @@
+tests/.chrome-profile/
+tests/*.png
+tests/browser-result.html
+tests/*.log

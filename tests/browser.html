@@ -1,0 +1,71 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><title>Browser test</title><body><pre id="result">RUNNING</pre><iframe src="../index.html" id="app" style="width:1200px;height:1000px"></iframe><script>
+(async () => {
+const frame=document.getElementById('app');
+const lines=[];
+let originalRaw;let originalLoaded=false;
+const errors=[];
+frame.addEventListener('load',()=>frame.contentWindow.addEventListener('error',event=>errors.push(event.message)));
+const assert=(value,label)=>{if(!value)throw new Error(label);lines.push('PASS '+label)};
+const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+const loaded=()=>new Promise(resolve=>frame.addEventListener('load',resolve,{once:true}));
+try {
+await loaded();
+let w=frame.contentWindow, d=w.document;
+
+const $=id=>d.getElementById(id);
+const submit=()=> $('add-form').dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));
+const add=(text,priority)=>{$('task-text').value=text;$('task-priority').value=priority;submit()};
+originalRaw=w.localStorage.getItem('goodwin.todo.v1');originalLoaded=true;
+w.localStorage.removeItem('goodwin.todo.v1');
+let loading=loaded();frame.src='../index.html?clean=1';await loading;w=frame.contentWindow;d=w.document;
+assert($('empty-state').hidden===false,'Пустой день без выдуманных задач');
+add('Купить продукты','secondary');add('<img src=x onerror=alert(1)>','urgent');
+assert(d.querySelectorAll('.task-row').length===2,'Добавление двух задач');
+assert(d.querySelector('.task-title').textContent==='<img src=x onerror=alert(1)>','Сортировка по приоритетам и безопасный текст');
+assert(!d.querySelector('.task-list img'),'Название задачи не исполняется как HTML');
+let check=d.querySelector('.task-check');check.click();
+assert($('main-ring').getAttribute('aria-valuenow')==='50','Кольцо дня обновилось до 50%');
+assert(d.querySelector('[aria-label="Срочно"]').getAttribute('aria-valuenow')==='100','Кольцо срочного приоритета обновилось до 100%');
+d.querySelector('[data-filter="done"]').click();
+assert(d.querySelectorAll('.task-row').length===1,'Фильтр выполненных задач');
+d.querySelector('.edit-button').click();
+assert($('edit-dialog').open,'Открытие редактора');
+$('edit-text').value='Сделать домашнее задание';$('edit-priority').value='later';
+$('edit-form').dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));
+assert(d.querySelector('.task-title').textContent==='Сделать домашнее задание','Редактирование названия');
+assert(d.querySelector('.task-meta').textContent==='Можно сделать потом','Редактирование приоритета');
+d.querySelector('.delete-button').click();
+assert(d.querySelectorAll('.task-row').length===0,'Удаление задачи');$('undo').click();
+assert(d.querySelectorAll('.task-row').length===1,'Отмена удаления');
+d.querySelector('[data-filter="all"]').click();
+const oldDay=$('selected-date').value;$('next-day').click();
+assert($('task-count').textContent==='0','Задачи разделены по датам');
+assert($('main-ring').getAttribute('aria-valuenow')==='0','Нет ложного прогресса в пустом дне');
+add('Завтрашнее дело','urgent');$('prev-day').click();
+assert($('selected-date').value===oldDay && $('task-count').textContent==='2','Возврат к предыдущему дню');
+assert($('week-total').textContent==='1 / 2 дел','История недели учитывает только дни до выбранного');
+loading=loaded();frame.src='../index.html?reload=1';await loading;w=frame.contentWindow;d=w.document;
+assert($('task-count').textContent==='2','Задачи сохранены после перезагрузки');
+assert($('main-ring').getAttribute('aria-valuenow')==='50','Прогресс сохранён после перезагрузки');
+const backup=JSON.parse(w.localStorage.getItem('goodwin.todo.v1'));
+assert(backup.tasks.length===3,'Хранение задач нескольких дней');
+w.localStorage.setItem('goodwin.todo.v1','{corrupt');loading=loaded();frame.src='../index.html?corrupt=1';await loading;w=frame.contentWindow;d=w.document;
+assert(!$('storage-warning').hidden,'Предупреждение о повреждённом хранилище');
+add('Не затирать исходные данные','urgent');
+assert(w.localStorage.getItem('goodwin.todo.v1')==='{corrupt','Повреждённые данные не перезаписаны');
+w.confirm=()=>true;
+let transfer=new w.DataTransfer();transfer.items.add(new w.File([JSON.stringify(backup)],'backup.json',{type:'application/json'}));$('import-file').files=transfer.files;
+$('import-file').dispatchEvent(new w.Event('change',{bubbles:true}));await wait(150);
+assert($('task-count').textContent==='2' && $('storage-warning').hidden,'Восстановление резервной копии');
+transfer=new w.DataTransfer();transfer.items.add(new w.File(['{}'],'bad.json',{type:'application/json'}));$('import-file').files=transfer.files;
+$('import-file').dispatchEvent(new w.Event('change',{bubbles:true}));await wait(150);
+assert(JSON.parse(w.localStorage.getItem('goodwin.todo.v1')).tasks.length===3,'Некорректный импорт не меняет задачи');
+frame.style.width='390px';await wait(100);
+assert(d.documentElement.scrollWidth<=w.innerWidth,'Мобильный экран без горизонтального переполнения');
+assert(errors.length===0,'Нет ошибок JavaScript');
+document.body.dataset.result='PASS';document.title='PASS — Browser tests';
+} catch(error) {lines.push('FAIL '+error.stack);document.body.dataset.result='FAIL';document.title='FAIL — Browser tests'}
+finally { if(originalLoaded){const storage=frame.contentWindow.localStorage;if(originalRaw===null)storage.removeItem('goodwin.todo.v1');else storage.setItem('goodwin.todo.v1',originalRaw)} }
+document.getElementById('result').textContent=lines.join('\n');
+})();
+</script></body></html>
